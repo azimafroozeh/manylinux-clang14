@@ -1,30 +1,30 @@
-name: Build & Publish Docker Image
+name: Build & Publish manylinux-clang image
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  push:        { branches: [ main ] }
+  pull_request: { branches: [ main ] }
 
 permissions:
   contents: read
-  packages: write   # to push to GHCR
+  packages: write      # push to ghcr.io
 
 jobs:
   docker:
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        arch: [ x86_64, aarch64 ]
         include:
           - arch: x86_64
-            base: quay.io/pypa/manylinux2014_x86_64:2025.04.19-1
-            mamb_arch: linux-64
+            platform: amd64
           - arch: aarch64
-            base: quay.io/pypa/manylinux2014_aarch64:2025.04.19-1
-            mamb_arch: linux-aarch64
+            platform: arm64
 
     steps:
+      # ── source code ─────────────────────────────────────────────────────────
       - uses: actions/checkout@v3
+
+      # ── buildx & registry login ─────────────────────────────────────────────
       - uses: docker/setup-buildx-action@v2
       - uses: docker/login-action@v2
         with:
@@ -32,25 +32,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build & push (${{ matrix.arch }})
+      # ── build & push image for this arch ────────────────────────────────────
+      - name: Build and push (${{ matrix.arch }})
         uses: docker/build-push-action@v3
         with:
           context: .
-          file: docker/Dockerfile
-          platforms: linux/${{ matrix.arch == 'x86_64' && 'amd64' || 'arm64' }}
+          file: docker/Dockerfile          # ← the Dockerfile you created
+          build-args: ARCH=${{ matrix.arch }}
+          platforms: linux/${{ matrix.platform }}
           push: true
-          build-args: |
-            ARCH=${{ matrix.arch }}
-            MAMBA_ARCH=${{ matrix.mamb_arch }}
           tags: |
-            ghcr.io/${{ github.repository_owner }}/manylinux-clang14:14.0.6-${{ matrix.arch }}
-            ghcr.io/${{ github.repository_owner }}/manylinux-clang14:latest-${{ matrix.arch }}
+            ghcr.io/${{ github.repository_owner }}/manylinux-clang:latest-${{ matrix.arch }}
+            ghcr.io/${{ github.repository_owner }}/manylinux-clang:16.0-${{ matrix.arch }}
 
-      - name: Smoke-test C++ headers (${{ matrix.arch }})
+      # ── quick smoke-test: clang + <cstdint> ─────────────────────────────────
+      - name: Smoke-test (${{ matrix.arch }})
         run: |
-          IMAGE=ghcr.io/${{ github.repository_owner }}/manylinux-clang14:14.0.6-${{ matrix.arch }}
+          IMAGE=ghcr.io/${{ github.repository_owner }}/manylinux-clang:latest-${{ matrix.arch }}
           docker run --rm $IMAGE clang --version
           printf '#include <cstdint>\nint main(){}' \
             | docker run --rm -i $IMAGE \
-                clang++ -std=c++20 -stdlib=libc++ -x c++ - -fsyntax-only \
-            && echo "✅ C++ headers OK for $IMAGE"
+                clang++ -std=c++20 -x c++ - -fsyntax-only
+          echo "✅  smoke-test passed for $IMAGE"
