@@ -1,34 +1,36 @@
 ###############################################################################
-# A manylinux2014 image with Clang 14 + lld from conda-forge and libc++ headers
-# Tags to build (examples):
-#   linux/amd64 → quay.io/pypa/manylinux2014_x86_64
-#   linux/arm64 → quay.io/pypa/manylinux2014_aarch64
+# manylinux2014 + Clang-14 via CentOS SCL + full C++ headers
 ###############################################################################
-# ----- 1) choose base according to build arg (default: x86_64) --------------
-ARG BASE_IMAGE=quay.io/pypa/manylinux2014_x86_64:2025.04.19-1
-FROM ${BASE_IMAGE}
+ARG ARCH=x86_64                     # overridden by build-arg for arm64
+FROM quay.io/pypa/manylinux2014_${ARCH}:2025.04.19-1
 
-# ----- 2) system dev headers for <cstdint>, <vector>, … ---------------------
-RUN yum install -y glibc-devel libstdc++-devel curl && yum clean all
+# 1) System C/C++ dev headers so <cstdint> & STL exist
+RUN yum install -y glibc-devel libstdc++-devel curl ca-certificates \
+ && yum clean all
 
-# ----- 3) micromamba bootstrap ----------------------------------------------
-RUN curl -Ls https://micromamba.snakepit.net/api/micromamba/linux-64/latest \
-    | tar -xvj -C /usr/local/bin --strip-components=1 bin/micromamba
+# 2) Download the static micromamba binary for this architecture
+#    (no tar, no compression errors)
+ARG MAMBA_ARCH=linux-64             # or linux-aarch64 for arm64
+RUN curl -L \
+    https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-${MAMBA_ARCH} \
+  -o /usr/local/bin/micromamba \
+  && chmod +x /usr/local/bin/micromamba
 
-# ----- 4) create /opt/conda env with Clang 14 + libc++ headers --------------
-RUN micromamba create --yes --prefix /opt/conda -c conda-forge \
+# 3) Create /opt/conda env with Clang-14 + libc++ runtime & headers
+RUN micromamba create -y -p /opt/conda -c conda-forge \
         clang=14.* clangxx=14.* lld=14.* \
         libcxx=14.* libcxxabi=14.* \
-    && micromamba clean --all --yes
+    && micromamba clean -a -y
 
-# ----- 5) expose toolchain ----------------------------------------------------
+# 4) Expose the toolchain
 ENV PATH=/opt/conda/bin:$PATH \
     CC=clang \
     CXX=clang++
 
-# ----- 6) sanity check: clang & <cstdint> ------------------------------------
-RUN clang --version && \
-    printf '#include <cstdint>\nint main(){}' \
-      | clang++ -std=c++20 -stdlib=libc++ -x c++ - -fsyntax-only
+# 5) Sanity check: clang works and <cstdint> is found
+RUN clang --version \
+ && printf '#include <cstdint>\nint main(){}' \
+    | clang++ -std=c++20 -stdlib=libc++ -x c++ - -fsyntax-only \
+ && echo "✅ C++ headers OK"
 
 CMD ["bash"]
