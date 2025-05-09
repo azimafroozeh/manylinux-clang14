@@ -1,6 +1,13 @@
 # 1) Base on the official manylinux2014_x86_64, so /opt/python/cp3*-cp3* exist
 FROM quay.io/pypa/manylinux2014_x86_64:2025.04.19-1
 
+# 1a) Install the system C/C++ development headers
+#     so that <cstdint>, <vector>, etc. are available to clang.
+RUN yum install -y \
+        glibc-devel \
+        libstdc++-devel \
+    && yum clean all
+
 # 2) Install micromamba (lightweight Conda installer)
 RUN curl -Ls https://micromamba.snakepit.net/api/micromamba/linux-64/latest \
     | tar -xvj -C /usr/local/bin --strip-components=1 bin/micromamba
